@@ -30,6 +30,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-go@v5
         with:
           go-version: '>=1.20.0'
@@ -40,16 +42,40 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y jq
 
       - run: bash ci/validate.sh
-      - name: Generate snapshot
+
+      # Detect ADR changes to avoid creating releases unnecessarily
+      - name: Detect ADR changes
+        id: changed
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q '^adr/'; then
+            echo "any_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate snapshot (no commit)
+        if: steps.changed.outputs.any_changed == 'true'
         run: |
           TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
           SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "TIMESTAMP=$TIMESTAMP" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
           bash tools/adr/build_release "adr/adr-${TIMESTAMP}-${SHORT_SHA}.jsonl"
 
-      - name: Commit snapshot
+      - name: Create tag for snapshot
+        if: steps.changed.outputs.any_changed == 'true'
         run: |
-          git config user.name  "adr-bot"
-          git config user.email "adr-bot@local"
-          git add adr/adr-*.jsonl
-          git commit -m "chore(adr): add snapshot $(date -u +%Y%m%d-%H%M%S)" || echo "No changes to commit"
-          git push || echo "Nothing to push"
+          TAG="adr-snap-${{ env.TIMESTAMP }}-${{ env.SHORT_SHA }}"
+          git tag -a "$TAG" -m "ADR snapshot for ${{ github.sha }}"
+          git push origin "$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Upload snapshot to GitHub Release
+        if: steps.changed.outputs.any_changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: "ADR Snapshot ${{ env.TAG }}"
+          prerelease: true
+          files: |
+            adr/adr-${{ env.TIMESTAMP }}-${{ env.SHORT_SHA }}.jsonl
