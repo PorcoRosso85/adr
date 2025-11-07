@@ -3,8 +3,9 @@ name: adr
 on:
   pull_request:
     paths: [ "adr/**", "tools/adr/**", "ci/validate.sh", ".github/workflows/adr.yml" ]
-  release:
-    types: [published]
+  push:
+    branches: [ main ]
+    paths: [ "adr/**", "tools/adr/**", "ci/validate.sh", ".github/workflows/adr.yml" ]
 
 jobs:
   validate:
@@ -22,8 +23,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y jq
       - run: bash ci/validate.sh
 
-  release_adr:
-    if: github.event_name == 'release'
+  snapshot:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -39,10 +40,16 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y jq
 
       - run: bash ci/validate.sh
-      - run: bash tools/adr/build_release "adr/adr-${{ github.ref_name }}.jsonl"
+      - name: Generate snapshot
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          bash tools/adr/build_release "adr/adr-${TIMESTAMP}-${SHORT_SHA}.jsonl"
 
-      - name: Upload snapshot to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            adr/adr-${{ github.ref_name }}.jsonl
+      - name: Commit snapshot
+        run: |
+          git config user.name  "adr-bot"
+          git config user.email "adr-bot@local"
+          git add adr/adr-*.jsonl
+          git commit -m "chore(adr): add snapshot $(date -u +%Y%m%d-%H%M%S)" || echo "No changes to commit"
+          git push || echo "Nothing to push"
