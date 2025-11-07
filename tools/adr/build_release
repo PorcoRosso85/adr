@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUT="${1:-adr/adr-$(git rev-parse --short HEAD).jsonl}"
+REPO="${GITHUB_REPOSITORY:-local/repo}"
+COMMIT="$(git rev-parse HEAD)"
+
+TMP=$(mktemp); : > "$TMP"
+
+pushd adr >/dev/null
+for f in src/*.cue; do
+  cue vet schema.cue "$f"   # 個別 vet
+
+  # repo ルート基準のパス/Blob SHA を付与
+  REL_PATH="adr/$f"
+  BLOB=$(git ls-tree -r HEAD -- "$REL_PATH" | awk '{print $3}')
+
+  cue export "$f" -e Decision \
+    | jq --arg path "$REL_PATH" --arg commit "$COMMIT" --arg blob "$BLOB" --arg repo "$REPO" \
+         '. + {source:{path:$path, commit:$commit, blob:$blob, repo:$repo}}' \
+    >> "$TMP"
+done
+popd >/dev/null
+
+jq -s 'sort_by(.ts, .id)[]' -c "$TMP" > "$OUT"
+echo "release snapshot: $OUT"

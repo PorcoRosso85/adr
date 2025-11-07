@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PREVIEW="${1:-adr/log.jsonl.preview}"
+
 jq -s '
   def sup_ids: (reduce .[] as $e ({}; if $e.supersedes then .[$e.supersedes]=true else . end));
   def current:
@@ -14,5 +15,6 @@ jq -s '
       {ok:true}
     end' "$PREVIEW" | \
   jq -e '.ok == true' >/dev/null || {
-    echo "[ERROR] multiple current Accepted per URI"; jq -r '.dups' "$PREVIEW" 2>/dev/null || true; exit 1; }
+    echo "[ERROR] multiple current Accepted per URI"; exit 1; }
+
 echo "[OK] cross-constraints passed"
