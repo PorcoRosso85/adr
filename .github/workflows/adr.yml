@@ -1,10 +1,11 @@
 name: adr
+
 on:
   pull_request:
     paths: [ "adr/**", "tools/adr/**", "ci/validate.sh", ".github/workflows/adr.yml" ]
-  push:
-    branches: [ main ]
-    paths: [ "adr/src/**" ]
+  release:
+    types: [published]
+
 jobs:
   validate:
     if: github.event_name == 'pull_request'
@@ -13,28 +14,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '>=1.20.0'
+      - name: Install CUE (go install)
+        run: go install cuelang.org/go/cmd/cue@latest
+      - name: Add GOPATH bin to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
       - run: sudo apt-get update && sudo apt-get install -y jq
-      - run: go install cuelang.org/go/cmd/cue@latest
-      - run: export PATH=$PATH:$HOME/go/bin && bash ci/validate.sh
-  append:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - run: bash ci/validate.sh
+
+  release_adr:
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '>=1.20.0'
+      - name: Install CUE (go install)
+        run: go install cuelang.org/go/cmd/cue@latest
+      - name: Add GOPATH bin to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
       - run: sudo apt-get update && sudo apt-get install -y jq
-      - run: go install cuelang.org/go/cmd/cue@latest
-      - run: export PATH=$PATH:$HOME/go/bin && bash ci/validate.sh
-      - run: bash tools/adr/append adr/log.jsonl.preview
-      - name: Commit & push
-        run: |
-          if git status --porcelain | grep -q 'adr/log.jsonl'; then
-            git config user.name  "adr-bot"
-            git config user.email "adr-bot@local"
-            git add adr/log.jsonl
-            git commit -m "chore(adr): append decisions via CI"
-            git push
-          fi
+
+      - run: bash ci/validate.sh
+      - run: bash tools/adr/build_release "adr/adr-${{ github.ref_name }}.jsonl"
+
+      - name: Upload snapshot to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            adr/adr-${{ github.ref_name }}.jsonl
