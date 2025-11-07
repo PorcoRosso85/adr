@@ -15,7 +15,7 @@ for f in src/*.cue; do
   REL_PATH="adr/$f"
   BLOB=$(git ls-tree -r HEAD -- "$REL_PATH" | awk '{print $3}')
 
-  cue export "$f" -e Decision \
+  cue export schema.cue "$f" -e Decision \
     | jq --arg path "$REL_PATH" --arg commit "$COMMIT" --arg blob "$BLOB" --arg repo "$REPO" \
          '. + {source:{path:$path, commit:$commit, blob:$blob, repo:$repo}}' \
     >> "$TMP"

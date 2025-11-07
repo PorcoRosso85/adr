@@ -6,7 +6,7 @@ PREVIEW="adr/log.jsonl.preview"
 pushd adr >/dev/null
 for f in src/*.cue; do
   cue vet schema.cue "$f"            # 既存方式：個別 vet
-  cue export "$f" -e Decision | jq -c . >> ../"$PREVIEW"
+  cue export schema.cue "$f" -e Decision | jq -c . >> ../"$PREVIEW"
 done
 popd >/dev/null
 
