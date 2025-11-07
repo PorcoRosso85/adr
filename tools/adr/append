@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+LOG="adr/log.jsonl"
+PREVIEW="${1:-adr/log.jsonl.preview}"
+
+# 既存IDセット
+TMP_IDS=$(mktemp)
+if [ -f "$LOG" ]; then jq -r '.id' "$LOG" 2>/dev/null | sort -u > "$TMP_IDS"; else : > "$TMP_IDS"; fi
+
+# 追記（重複除去）
+ADDED=0
+while IFS= read -r line; do
+  id=$(echo "$line" | jq -r '.id')
+  if ! grep -qx "$id" "$TMP_IDS"; then
+    echo "$line" >> "$LOG"
+    echo "$id" >> "$TMP_IDS"
+    ADDED=$((ADDED+1))
+  fi
+done < <(cat "$PREVIEW")
+echo "[OK] appended $ADDED decisions into $LOG"

@@ -1,0 +1,34 @@
+name: adr
+on:
+  pull_request:
+    paths: [ "adr/**", "tools/adr/**", "ci/validate.sh", ".github/workflows/adr.yml" ]
+  push:
+    branches: [ main ]
+    paths: [ "adr/src/**" ]
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y jq
+      - run: curl -fsSL https://github.com/cue-lang/cue/releases/latest/download/cue_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin cue
+      - run: bash ci/validate.sh
+  append:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y jq
+      - run: curl -fsSL https://github.com/cue-lang/cue/releases/latest/download/cue_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin cue
+      - run: bash ci/validate.sh
+      - run: bash tools/adr/append adr/log.jsonl.preview
+      - name: Commit & push
+        run: |
+          if git status --porcelain | grep -q 'adr/log.jsonl'; then
+            git config user.name  "adr-bot"
+            git config user.email "adr-bot@local"
+            git add adr/log.jsonl
+            git commit -m "chore(adr): append decisions via CI"
+            git push
+          fi

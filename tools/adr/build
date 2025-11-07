@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PREVIEW="adr/log.jsonl.preview"
+: > "$PREVIEW"
+cd adr && cue vet schema.cue src/*.cue
+for f in src/*.cue; do
+  cue export schema.cue "$f" -e Decision | jq -c . >> "../$PREVIEW"
+done
+cd ..
+echo "generated: $PREVIEW"
