@@ -11,17 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - run: sudo apt-get update && sudo apt-get install -y jq
-      - run: curl -fsSL https://github.com/cue-lang/cue/releases/latest/download/cue_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin cue
-      - run: bash ci/validate.sh
+      - run: go install cuelang.org/go/cmd/cue@latest
+      - run: export PATH=$PATH:$HOME/go/bin && bash ci/validate.sh
   append:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - run: sudo apt-get update && sudo apt-get install -y jq
-      - run: curl -fsSL https://github.com/cue-lang/cue/releases/latest/download/cue_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin cue
-      - run: bash ci/validate.sh
+      - run: go install cuelang.org/go/cmd/cue@latest
+      - run: export PATH=$PATH:$HOME/go/bin && bash ci/validate.sh
       - run: bash tools/adr/append adr/log.jsonl.preview
       - name: Commit & push
         run: |
