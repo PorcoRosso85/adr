@@ -2,8 +2,9 @@
 set -euo pipefail
 PREVIEW="adr/log.jsonl.preview"
 : > "$PREVIEW"
-cd adr && cue vet schema.cue src/*.cue
+cd adr
 for f in src/*.cue; do
+  cue vet schema.cue "$f"
   cue export schema.cue "$f" -e Decision | jq -c . >> "../$PREVIEW"
 done
 cd ..
