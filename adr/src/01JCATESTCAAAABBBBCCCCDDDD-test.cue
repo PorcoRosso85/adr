@@ -5,6 +5,10 @@ Decision: #Decision & {
   uri: "api://test/GET /health"
   ts:  "2025-11-07T08:10:00Z"
   status: "Accepted"
+  spec: {
+    request?: _
+    response?: _
+  }
   rationale_md: """
 # ヘルスチェックエンドポイント
 - 目的: サービス稼働状態の監視
