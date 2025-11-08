@@ -16,8 +16,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '>=1.20.0'
-      - name: Install CUE (go install)
-        run: go install cuelang.org/go/cmd/cue@latest
+      - name: Install CUE (version pinned for reproducibility)
+        run: go install cuelang.org/go/cmd/cue@v0.9.2
       - name: Add GOPATH bin to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
       - run: sudo apt-get update && sudo apt-get install -y jq
@@ -26,6 +26,8 @@ jobs:
   snapshot_release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.mktag.outputs.tag }}
     permissions:
       contents: write
     steps:
@@ -35,8 +37,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '>=1.20.0'
-      - name: Install CUE (go install)
-        run: go install cuelang.org/go/cmd/cue@latest
+      - name: Install CUE (version pinned for reproducibility)
+        run: go install cuelang.org/go/cmd/cue@v0.9.2
       - name: Add GOPATH bin to PATH
         run: echo "$HOME/go/bin" >> $GITHUB_PATH
       - run: sudo apt-get update && sudo apt-get install -y jq
@@ -54,21 +56,84 @@ jobs:
           fi
 
       - name: Build snapshot & manifest
+        id: mktag
         if: steps.changed.outputs.any_changed == 'true'
         run: |
           TS=$(date -u +%Y%m%d-%H%M%S)
-          SHA=$(git rev-parse --short HEAD)
+          SHA=$(git rev-parse --short=7 HEAD)
+          TAG="adr-snap-${TS}-${SHA}"
+
+          # Validate tag format
+          if ! echo "$TAG" | grep -qE '^adr-snap-[0-9]{8}-[0-9]{6}-[a-f0-9]{7}$'; then
+            echo "[FAIL] Invalid tag format: $TAG"
+            exit 1
+          fi
+
           echo "TS=$TS" >> $GITHUB_ENV
           echo "SHA=$SHA" >> $GITHUB_ENV
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
           bash tools/adr/build_release "adr/adr-${TS}-${SHA}.jsonl"
 
       - name: Create Release
         if: steps.changed.outputs.any_changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: adr-snap-${{ env.TS }}-${{ env.SHA }}
-          name: "ADR Snapshot ${{ env.TS }}-${{ env.SHA }}"
+          tag_name: ${{ env.TAG }}
+          name: "ADR Snapshot ${{ env.TAG }}"
           prerelease: true
           files: |
             adr/adr-${{ env.TS }}-${{ env.SHA }}.jsonl
             adr/manifest-${{ env.TS }}-${{ env.SHA }}.json
+
+  repro_check:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: snapshot_release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '>=1.20.0' }
+      - name: Install CUE (version pinned)
+        run: go install cuelang.org/go/cmd/cue@v0.9.2
+      - name: Add GOPATH bin to PATH
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+      - run: sudo apt-get update && sudo apt-get install -y jq gh
+
+      # Download release assets
+      - name: Download release manifest
+        if: needs.snapshot_release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.snapshot_release.outputs.tag }}
+        run: |
+          echo "[INFO] Downloading manifest for tag: $TAG"
+          gh release download "$TAG" -p "manifest-*.json" || {
+            echo "[WARN] Release not yet available, skipping repro check"
+            exit 0
+          }
+
+      # Verify allowedURIs_hash
+      - name: Verify allowedURIs_hash
+        if: needs.snapshot_release.outputs.tag != ''
+        run: |
+          if [ ! -f manifest-*.json ]; then
+            echo "[WARN] Manifest not downloaded, skipping"
+            exit 0
+          fi
+
+          source tools/adr/lib.sh
+          MANIFEST=$(ls manifest-*.json | head -1)
+          EXPECTED=$(jq -r .allowedURIs_hash "$MANIFEST")
+          ACTUAL=$(allowed_hash)
+
+          echo "[INFO] Expected allowedURIs_hash: $EXPECTED"
+          echo "[INFO] Actual allowedURIs_hash: $ACTUAL"
+
+          if [ "$EXPECTED" = "$ACTUAL" ]; then
+            echo "[OK] allowedURIs_hash verified"
+          else
+            echo "[FAIL] Hash mismatch"
+            exit 1
+          fi

@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Load common library functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
 PREV="${1:-adr/log.jsonl.preview}"
 err(){ echo "[ERR] $*" >&2; exit 1; }
 
+# Check for duplicate URIs before normalization
+check_no_dups || exit 1
+
 # Read allowed URIs from CUE (single source of truth)
-ALLOWED_JSON=$(cd adr && cue export schema.cue allowed.cue -e AllowedURIs) || err "failed to export AllowedURIs from CUE"
+ALLOWED_JSON=$(normalize_allowed) || err "failed to export AllowedURIs from CUE"
 
 # 0) Basic checks
 jq -s -e 'length > 0' "$PREV" >/dev/null || err "empty JSONL file"
