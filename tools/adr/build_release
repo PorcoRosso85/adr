@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-OUT="${1:-adr/adr-$(git rev-parse --short HEAD).jsonl}"
+# Load common library functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
+OUT="${1:-adr/adr-$(git rev-parse --short=7 HEAD).jsonl}"
 REPO="${GITHUB_REPOSITORY:-local/repo}"
 COMMIT="$(git rev-parse HEAD)"
 CV="$(cue version | awk '{print $NF}')"
 CFLAGS="${CUE_FLAGS:-""}"
 TOOLCHAIN="${TOOLCHAIN:-default}"
 
+# Check for duplicate URIs before normalization
+check_no_dups || exit 1
+
+# Generate canonical allowed.json from CUE (single source of truth)
+normalize_allowed > adr/allowed.json
+AWHASH=$(allowed_hash)
+
 TMP=$(mktemp); : > "$TMP"
 
 pushd adr >/dev/null
-SCHASH="$(sha256sum schema.cue | awk '{print $1}')"
-AWHASH="$(sha256sum allowed.json | awk '{print $1}')"
+SCHASH="$(LC_ALL=C hash256 < schema.cue)"
 
 for f in src/*.cue; do
   cue vet schema.cue "$f"
@@ -53,7 +63,7 @@ jq -s 'sort_by(.ts, .id)[]' -c "$TMP" > "$OUT"
 
 # Generate manifest with $TS-$SHA naming
 TS_PART="$(date -u +%Y%m%d-%H%M%S)"
-SHA_PART="$(git rev-parse --short HEAD)"
+SHA_PART="$(git rev-parse --short=7 HEAD)"
 MAN="adr/manifest-${TS_PART}-${SHA_PART}.json"
 
 jq -nc --arg repo "$REPO" --arg commit "$COMMIT" \
