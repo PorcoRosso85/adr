@@ -39,7 +39,7 @@ jq -s -e '
   def arr(x): if (x|type)=="array" then x elif (x|type)=="string" then [x] else [] end;
   . as $all
   | (map({(.id):.uri})|add) as $id2uri
-  | all($all[]; (arr(.supersedes) | all(. as $sid | $id2uri[$sid] == $id2uri[$all[0].id])))
+  | all($all[]; (arr(.supersedes) | all(. as $sid | $id2uri[$sid] == .uri )))
 ' "$PREV" >/dev/null || err "supersedes points to different URI"
 
 # DAG check (no cycles)
