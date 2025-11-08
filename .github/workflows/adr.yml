@@ -67,6 +67,17 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           bash tools/adr/build_release "adr/adr-${TS}-${SHA}.jsonl"
 
+      - name: Validate tag format
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          TAG="${{ steps.mktag.outputs.tag }}"
+          if ! echo "$TAG" | grep -qE '^adr-snap-[0-9]{8}-[0-9]{6}-[a-f0-9]{7}$'; then
+            echo "[ERR] Tag format invalid: $TAG" >&2
+            echo "[ERR] Expected: adr-snap-YYYYMMDD-HHMMSS-7charhex" >&2
+            exit 1
+          fi
+          echo "[OK] Tag format validated: $TAG"
+
       - name: Create Release
         if: steps.changed.outputs.any_changed == 'true'
         uses: softprops/action-gh-release@v2
@@ -77,6 +88,12 @@ jobs:
           files: |
             adr/adr-${{ env.TS }}-${{ env.SHA }}.jsonl
             adr/manifest-${{ env.TS }}-${{ env.SHA }}.json
+
+      - name: Cleanup temporary files
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          rm -f adr/allowed.json
+          echo "[INFO] Cleaned up generated allowed.json"
 
   repro_check:
     needs: snapshot_release
@@ -106,3 +123,18 @@ jobs:
           MAN=$(ls manifest-*.json | head -1)
           echo "[INFO] Manifest downloaded: $MAN"
           jq . "$MAN"
+
+          # Verify allowedURIs_hash reproducibility
+          source tools/adr/lib.sh
+          MANIFEST_HASH=$(jq -r '.allowedURIs_hash' "$MAN")
+          COMPUTED_HASH=$(allowed_hash)
+
+          echo "[INFO] Manifest allowedURIs_hash: $MANIFEST_HASH"
+          echo "[INFO] Computed allowedURIs_hash: $COMPUTED_HASH"
+
+          if [ "$MANIFEST_HASH" != "$COMPUTED_HASH" ]; then
+            echo "[ERR] Hash mismatch! Reproducibility verification failed" >&2
+            exit 1
+          fi
+
+          echo "[OK] allowedURIs_hash verified - reproducibility confirmed"
