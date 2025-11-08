@@ -25,6 +25,20 @@ jq -s -e --argjson a "$ALLOWED_JSON" '
   all(.[]; if .status=="Deprecated" then (.alias_to!=null and ($a|index(.alias_to))!=null) else (.alias_to==null) end)
 ' "$PREV" >/dev/null || err "alias_to rule violation"
 
+# alias_to: no cycles (URI redirect graph must be acyclic)
+jq -s -e '
+  def edges: [ .[] | select(.status=="Deprecated" and (.alias_to!=null)) | {f:.uri, t:.alias_to} ];
+  def next($g; $n): [ $g[] | select(.f==$n) | .t ];
+  def cyc($g; $start; $n; $seen):
+    if ($seen|index($n)) then false
+    else any(next($g; $n)[]?; if .==$start then true else cyc($g; $start; .; ($seen+[$n])) end)
+    end;
+  (edges) as $g
+  | if ($g|length)==0 then true else
+      all( ([$g[]|.f] | unique[])[]; (cyc($g; .; .; [])) | not )
+    end
+' "$PREV" >/dev/null || err "alias_to contains cycle"
+
 # 1) supersedes checks: existence, same-URI, DAG
 # Helper: normalize supersedes to array
 jq -s -e '
