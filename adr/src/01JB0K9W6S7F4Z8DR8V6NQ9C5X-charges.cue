@@ -5,7 +5,10 @@ Decision: #Decision & {
   uri: "api://billing/POST /charges"
   ts:  "2025-11-07T03:10:00Z"
   status: "Accepted"
-  supersedes: "01JAZ6Q7Q3N1B3W5QK5E2V5H2G"
+  spec: {
+    request?: _
+    response?: _
+  }
   rationale_md: """
 # 課金APIの整合性
 - 目的: 二重課金防止・リトライ安全性

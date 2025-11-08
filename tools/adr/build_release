@@ -4,23 +4,70 @@ set -euo pipefail
 OUT="${1:-adr/adr-$(git rev-parse --short HEAD).jsonl}"
 REPO="${GITHUB_REPOSITORY:-local/repo}"
 COMMIT="$(git rev-parse HEAD)"
+CV="$(cue version | awk '{print $NF}')"
+CFLAGS="${CUE_FLAGS:-""}"
+TOOLCHAIN="${TOOLCHAIN:-default}"
 
 TMP=$(mktemp); : > "$TMP"
 
 pushd adr >/dev/null
+SCHASH="$(sha256sum schema.cue | awk '{print $1}')"
+AWHASH="$(sha256sum allowed.json | awk '{print $1}')"
+
 for f in src/*.cue; do
-  cue vet schema.cue "$f"   # 個別 vet
+  cue vet schema.cue "$f"
 
-  # repo ルート基準のパス/Blob SHA を付与
-  REL_PATH="adr/$f"
-  BLOB=$(git ls-tree -r HEAD -- "$REL_PATH" | awk '{print $3}')
+  REL="adr/$f"
+  BLOB=$(git ls-tree -r HEAD -- "$REL" | awk '{print $3}')
+  RAW="$(cue export schema.cue "$f" -e Decision | jq -cS .)"
 
-  cue export schema.cue "$f" -e Decision \
-    | jq --arg path "$REL_PATH" --arg commit "$COMMIT" --arg blob "$BLOB" --arg repo "$REPO" \
-         '. + {source:{path:$path, commit:$commit, blob:$blob, repo:$repo}}' \
+  # UTC normalization
+  TS="$(git log -1 --format=%cI -- "$REL" | xargs -I{} date -u -d {} +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "1970-01-01T00:00:00Z")"
+
+  # spec_hash (SHA-256 of canonicalized spec)
+  SPHASH="$(echo "$RAW" | jq -rc '.spec // {}' | jq -cS . | sha256sum | awk '{print $1}')"
+
+  ACTOR="${GITHUB_ACTOR:-local}"
+
+  echo "$RAW" | jq -c \
+    --arg path "$REL" --arg commit "$COMMIT" --arg blob "$BLOB" --arg repo "$REPO" \
+    --arg ts "$TS" --arg cv "$CV" --arg sh "$SCHASH" --arg sph "$SPHASH" --arg actor "$ACTOR" \
+    '. + {
+      ts: $ts,
+      actor: $actor,
+      source: {
+        path: $path,
+        commit: $commit,
+        blob: $blob,
+        repo: $repo,
+        cue_version: $cv,
+        schema_hash: $sh,
+        spec_hash: $sph
+      }
+    }' \
     >> "$TMP"
 done
 popd >/dev/null
 
 jq -s 'sort_by(.ts, .id)[]' -c "$TMP" > "$OUT"
+
+# Generate manifest with $TS-$SHA naming
+TS_PART="$(date -u +%Y%m%d-%H%M%S)"
+SHA_PART="$(git rev-parse --short HEAD)"
+MAN="adr/manifest-${TS_PART}-${SHA_PART}.json"
+
+jq -nc --arg repo "$REPO" --arg commit "$COMMIT" \
+  --arg cuever "$CV" --arg cueflags "$CFLAGS" --arg tool "$TOOLCHAIN" \
+  --arg sch "$SCHASH" --arg aw "$AWHASH" \
+  '{
+    repo: $repo,
+    commit: $commit,
+    cue_version: $cuever,
+    cue_flags: $cueflags,
+    toolchain: $tool,
+    schema_hash: $sch,
+    allowedURIs_hash: $aw
+  }' > "$MAN"
+
 echo "release snapshot: $OUT"
+echo "manifest: $MAN"

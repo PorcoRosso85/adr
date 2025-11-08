@@ -23,7 +23,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y jq
       - run: bash ci/validate.sh
 
-  snapshot:
+  snapshot_release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -53,29 +53,22 @@ jobs:
             echo "any_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Generate snapshot (no commit)
+      - name: Build snapshot & manifest
         if: steps.changed.outputs.any_changed == 'true'
         run: |
-          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "TIMESTAMP=$TIMESTAMP" >> "$GITHUB_ENV"
-          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
-          bash tools/adr/build_release "adr/adr-${TIMESTAMP}-${SHORT_SHA}.jsonl"
+          TS=$(date -u +%Y%m%d-%H%M%S)
+          SHA=$(git rev-parse --short HEAD)
+          echo "TS=$TS" >> $GITHUB_ENV
+          echo "SHA=$SHA" >> $GITHUB_ENV
+          bash tools/adr/build_release "adr/adr-${TS}-${SHA}.jsonl"
 
-      - name: Create tag for snapshot
-        if: steps.changed.outputs.any_changed == 'true'
-        run: |
-          TAG="adr-snap-${{ env.TIMESTAMP }}-${{ env.SHORT_SHA }}"
-          git tag -a "$TAG" -m "ADR snapshot for ${{ github.sha }}"
-          git push origin "$TAG"
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-
-      - name: Upload snapshot to GitHub Release
+      - name: Create Release
         if: steps.changed.outputs.any_changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: "ADR Snapshot ${{ env.TAG }}"
+          tag_name: adr-snap-${{ env.TS }}-${{ env.SHA }}
+          name: "ADR Snapshot ${{ env.TS }}-${{ env.SHA }}"
           prerelease: true
           files: |
-            adr/adr-${{ env.TIMESTAMP }}-${{ env.SHORT_SHA }}.jsonl
+            adr/adr-${{ env.TS }}-${{ env.SHA }}.jsonl
+            adr/manifest-${{ env.TS }}-${{ env.SHA }}.json
