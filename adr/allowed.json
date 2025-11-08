@@ -1,4 +1,0 @@
-[
-  "api://billing/POST /charges",
-  "api://test/GET /health"
-]
