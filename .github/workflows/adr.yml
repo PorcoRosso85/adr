@@ -80,8 +80,8 @@ jobs:
         if: steps.changed.outputs.any_changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: "ADR Snapshot ${{ env.TAG }}"
+          tag_name: adr-snap-${{ env.TS }}-${{ env.SHA }}
+          name: "ADR Snapshot ${{ env.TS }}-${{ env.SHA }}"
           prerelease: true
           files: |
             adr/adr-${{ env.TS }}-${{ env.SHA }}.jsonl
