@@ -21,8 +21,15 @@ jq -s -e 'all(.[]; .id != null and .uri != null)' "$PREV" >/dev/null || err "id 
 # ID uniqueness
 jq -s -e '(map(.id)|length) == (map(.id)|unique|length)' "$PREV" >/dev/null || err "duplicate id found"
 
-# AllowedURIs whitelist
-jq -s -e --argjson a "$ALLOWED_JSON" 'all(.[]; (.uri as $u | ($a|index($u))!=null))' "$PREV" >/dev/null || err "uri not in allowed.json"
+# AllowedURIs whitelist (deny-by-default with diff display)
+UNAUTHORIZED=$(jq -s -r --argjson a "$ALLOWED_JSON" '
+  [.[].uri] | unique | map(select(. as $u | ($a|index($u))==null))
+' "$PREV")
+if [ "$UNAUTHORIZED" != "[]" ]; then
+  echo "[ERR] Unauthorized URIs detected (not in AllowedURIs):" >&2
+  echo "$UNAUTHORIZED" | jq -r '.[]' >&2
+  err "deny-by-default: unauthorized URIs found"
+fi
 
 # Accepted requires spec (PR-time requirement)
 jq -s -e 'all(.[]; if .status=="Accepted" then (.spec!=null) else true end)' "$PREV" >/dev/null || err "Accepted Decision missing spec"
