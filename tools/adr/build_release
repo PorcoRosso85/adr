@@ -11,6 +11,12 @@ COMMIT="$(git rev-parse HEAD)"
 CV="$(cue version | awk '{print $NF}')"
 CFLAGS="${CUE_FLAGS:-""}"
 TOOLCHAIN="${TOOLCHAIN:-default}"
+ACTOR="${GITHUB_ACTOR:-$(git config user.name || echo "unknown")}"
+TS_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Source metadata for full auditability
+SOURCE_PATH="tools/adr/build_release"
+SOURCE_BLOB=$(LC_ALL=C hash256 < "$SOURCE_PATH")
 
 TMP=$(mktemp); : > "$TMP"
 
@@ -63,15 +69,26 @@ jq -s 'sort_by(.ts, .id)[]' -c "$TMP" > "$OUT"
 
 # Generate manifest with $TS-$SHA naming
 TS_PART="$(date -u +%Y%m%d-%H%M%S)"
-SHA_PART="$(git rev-parse --short HEAD)"
+SHA_PART="$(git rev-parse --short=7 HEAD)"
 MAN="adr/manifest-${TS_PART}-${SHA_PART}.json"
 
 jq -nc --arg repo "$REPO" --arg commit "$COMMIT" \
   --arg cuever "$CV" --arg cueflags "$CFLAGS" --arg tool "$TOOLCHAIN" \
   --arg sch "$SCHASH" --arg aw "$AWHASH" \
+  --arg actor "$ACTOR" --arg ts "$TS_UTC" \
+  --arg src_repo "$REPO" --arg src_commit "$COMMIT" \
+  --arg src_path "$SOURCE_PATH" --arg src_blob "$SOURCE_BLOB" \
   '{
     repo: $repo,
     commit: $commit,
+    ts: $ts,
+    actor: $actor,
+    source: {
+      repo: $src_repo,
+      commit: $src_commit,
+      path: $src_path,
+      blob: $src_blob
+    },
     cue_version: $cuever,
     cue_flags: $cueflags,
     toolchain: $tool,
