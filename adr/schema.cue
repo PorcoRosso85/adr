@@ -2,7 +2,7 @@ package adr
 
 #ULID:   string & =~"^[0-9A-HJKMNP-TV-Z]{26}$"
 #ISO8601: string & =~"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(Z|[+-]\\d{2}:?\\d{2})$"
-#URI:    string & =~"^(code|api|db|infra|doc|accounts)://.+$"
+#URI:    string & =~"^(code|api|db|infra|doc|accounts)://\\S+$"
 
 #Decision: {
   id:     string & #ULID

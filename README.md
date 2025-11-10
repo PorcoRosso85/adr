@@ -12,8 +12,8 @@ All permitted Decision URIs are defined in `adr/allowed.cue` using CUE language 
 package adr
 
 AllowedURIs: [...#URI] & [
-    "api://billing/POST /charges",
-    "api://test/GET /health",
+    "api://billing/POST:/charges",
+    "api://test/GET:/health",
 ]
 ```
 
@@ -28,7 +28,7 @@ All Decision URIs **must** be pre-registered in `allowed.cue`. Attempting to use
 
 ```bash
 [ERR] Unauthorized URIs detected (not in AllowedURIs):
-api://unauthorized/POST /endpoint
+api://unauthorized/POST:/endpoint
 [ERR] deny-by-default: unauthorized URIs found
 ```
 
@@ -65,8 +65,8 @@ ci/
 1. **Register URI in `adr/allowed.cue`:**
    ```cue
    AllowedURIs: [...#URI] & [
-       "api://billing/POST /charges",
-       "api://newservice/POST /action",  // Add here
+       "api://billing/POST:/charges",
+       "api://newservice/POST:/action",  // Add here
    ]
    ```
 
@@ -81,7 +81,7 @@ ci/
 
    Decision: {
        id: "01JB..."
-       uri: "api://newservice/POST /action"
+       uri: "api://newservice/POST:/action"
        status: "Accepted"
        spec: { /* CUE schema */ }
        rationale_md: "# Decision rationale..."

@@ -2,7 +2,7 @@ package adr
 
 Decision: #Decision & {
   id:  "01JCATESTCAAAABBBBCCCCDDDD"
-  uri: "api://test/GET /health"
+  uri: "api://test/GET:/health"
   ts:  "2025-11-07T08:10:00Z"
   status: "Accepted"
   spec: {
