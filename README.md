@@ -34,6 +34,49 @@ api://unauthorized/POST:/endpoint
 
 This ensures explicit approval for all architectural decisions before implementation.
 
+## Specifications
+
+### narHash Determinism
+
+All generated artifacts use NAR (Nix Archive) hashing for content-addressable storage:
+
+1. **Serialization**: Minified JSON with keys in lexicographic order, UTF-8 encoding, LF line endings
+2. **Hashing**: SHA-256 of NAR-serialized content, encoded as base32 (lowercase)
+3. **Embedding**: `narHash` field in JSON root + filename suffix
+4. **Example**: `tree-final-nar-1a2b3c4d5e6f7g8h.json` with `{"narHash": "sha256-1a2b3c4d5e6f7g8h", ...}`
+
+**Rationale**: Content-addressable artifacts prevent accidental overwrites and enable verifiable reproducibility.
+
+### URI Slug Convention
+
+For manifest filenames, URIs are converted to filesystem-safe slugs:
+
+- **Rule**: Replace `/` with `.`, remove `://`, remove `:` before paths
+- **Example**: `api://billing/POST:/charges` → `api.billing.POST.charges`
+- **Usage**: `manifest-api.billing.POST.charges-{narHash}.json`
+
+### Tree Final Guard Rules
+
+The `tree-final-nar-*.json` artifact must satisfy:
+
+1. **Schema version**: `schema_version` field must equal `"1"`
+2. **Finality**: All entries must have `state: "final"` (no `"provisional"`)
+3. **Size limit**: File size < 10 MB (prevents unbounded growth)
+4. **Timeout**: Download must complete within 30 seconds
+
+**Enforcement**: `spec` repository guards validate these rules before accepting the tree.
+
+### Artifact Distribution
+
+All generated artifacts are published exclusively to **GitHub Releases**:
+
+- **Snapshots**: `tree-final-nar-{hash}.json`
+- **Per-node manifests**: `manifest-{slug}-{hash}.json`
+- **Access URL**: `https://github.com/{org}/{repo}/releases/download/{tag}/{filename}`
+- **Authentication**: GitHub token (`GITHUB_TOKEN`) for private repos
+
+**Never committed to main branch** (enforced by `.gitignore` and CI guard).
+
 ## Repository Structure
 
 ```
@@ -45,9 +88,11 @@ adr/
 │   └── ...
 └── (generated files)       # NEVER committed to git:
     ├── allowed.json        # Auto-generated from allowed.cue
-    ├── log.jsonl.preview   # Build preview
-    ├── adr-*.jsonl         # Release snapshots (published to GitHub Releases only)
-    └── manifest-*.json     # Release manifests (published to GitHub Releases only)
+    ├── decisions.jsonl     # Serialized decisions
+    ├── tree-*.json         # Tree snapshots (narHash-addressed)
+    ├── log*.jsonl          # Build logs and previews
+    ├── adr-*.jsonl         # Legacy snapshots (deprecated, use tree-*.json)
+    └── manifest-*.json     # Per-node manifests (published to GitHub Releases only)
 
 tools/adr/
 ├── lib.sh                  # Common library functions (portable hashing, normalization)
@@ -59,9 +104,9 @@ ci/
 └── validate.sh             # CI validation entry point (includes generated file tracking guard)
 ```
 
-**Important:** All generated files (`.jsonl`, `manifest-*.json`, `allowed.json`) are **never committed** to the main branch. They are either:
-- Transient build artifacts (`.preview` files)
-- Published exclusively to GitHub Releases (snapshots and manifests)
+**Important:** All generated files (`decisions.jsonl`, `tree-*.json`, `log*.jsonl`, `manifest-*.json`, `allowed.json`) are **never committed** to the main branch. They are either:
+- Transient build artifacts (local only)
+- Published exclusively to GitHub Releases (tree/manifests with narHash)
 
 ## Workflow
 
@@ -250,7 +295,7 @@ All URIs must match the pattern defined in `schema.cue` (`#URI`): no whitespace 
 This error means you've accidentally committed auto-generated files. To fix:
 
 ```bash
-git rm adr/allowed.json adr/adr-*.jsonl adr/manifest-*.json
+git rm adr/allowed.json adr/decisions.jsonl adr/tree-*.json adr/adr-*.jsonl adr/manifest-*.json adr/log*.jsonl
 git commit -m "fix: remove tracked generated files"
 ```
 

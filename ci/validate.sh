@@ -3,7 +3,14 @@ set -euo pipefail
 
 echo "[INFO] Checking for tracked generated files..."
 # Prevent auto-generated files from being committed
-TRACKED_GEN_FILES=$(git ls-files 'adr/adr-*.jsonl' 'adr/allowed.json' 'adr/manifest-*.json' 'adr/log.jsonl' 'adr/log.jsonl.preview' || true)
+TRACKED_GEN_FILES=$(git ls-files \
+  'adr/adr-*.jsonl' \
+  'adr/allowed.json' \
+  'adr/manifest-*.json' \
+  'adr/log*.jsonl' \
+  'adr/decisions.jsonl' \
+  'adr/tree-*.json' \
+  || true)
 if [ -n "$TRACKED_GEN_FILES" ]; then
   echo "[ERR] Generated files must not be tracked in git:"
   echo "$TRACKED_GEN_FILES"
