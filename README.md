@@ -77,6 +77,34 @@ All generated artifacts are published exclusively to **GitHub Releases**:
 
 **Never committed to main branch** (enforced by `.gitignore` and CI guard).
 
+### Event Dispatch
+
+On every release, an `adr-updated` event is dispatched to the `spec` repository:
+
+**Payload**:
+```json
+{
+  "eventId": "01JB...",
+  "narHash": "sha256-abc123...",
+  "treeFinalURL": "https://github.com/org/repo/releases/download/tag/tree-final-nar-abc123.json",
+  "repo": "org/repo",
+  "commit": "abc123..."
+}
+```
+
+**Health Guards**:
+- **Sender allowlist**: Only same-org repositories can dispatch events
+- **Required fields**: `eventId` (ULID), `narHash`, `treeFinalURL`, `repo`, `commit`
+- **Concurrency**: `adr-release` group prevents concurrent builds
+
+**Outbox Pattern (Lazy Retry)**:
+- Failed dispatches are saved to `.outbox/{eventId}.json`
+- Retry logic processes pending entries on next run
+- ACK handling is future work (provisional state)
+
+**Configuration**:
+Set `ADR_SPEC_REPO` variable in repository settings (e.g., `org/spec`).
+
 ## Repository Structure
 
 ```
@@ -95,13 +123,17 @@ adr/
     └── manifest-*.json     # Per-node manifests (published to GitHub Releases only)
 
 tools/adr/
-├── lib.sh                  # Common library functions (portable hashing, normalization)
+├── lib.sh                  # Common library functions (portable hashing, narHash, URI slugs)
 ├── build                   # Build preview JSONL
-├── check                   # Validation checks (deny-by-default, DAG, compatibility)
-└── build_release           # Build release snapshot with manifest
+├── check                   # Validation checks (deny-by-default, DAG, compatibility, URI format)
+├── build_release           # Build release snapshot with manifest (legacy)
+├── build_tree              # Build tree-final-nar-*.json and per-node manifests
+└── dispatch                # Dispatch adr-updated event with Outbox (Lazy Retry)
 
 ci/
 └── validate.sh             # CI validation entry point (includes generated file tracking guard)
+
+.outbox/                    # Dispatch retry queue (gitignored, Lazy Retry pattern)
 ```
 
 **Important:** All generated files (`decisions.jsonl`, `tree-*.json`, `log*.jsonl`, `manifest-*.json`, `allowed.json`) are **never committed** to the main branch. They are either:

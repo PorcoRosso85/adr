@@ -7,6 +7,11 @@ on:
     branches: [ main ]
     paths: [ "adr/**", "tools/adr/**", "ci/validate.sh", ".github/workflows/adr.yml" ]
 
+# Prevent concurrent release builds
+concurrency:
+  group: adr-release
+  cancel-in-progress: false
+
 jobs:
   validate:
     if: github.event_name == 'pull_request'
@@ -55,7 +60,7 @@ jobs:
             echo "any_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build snapshot & manifest
+      - name: Build tree & manifests
         id: mktag
         if: steps.changed.outputs.any_changed == 'true'
         run: |
@@ -74,6 +79,10 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
+          # Build tree-final-nar-*.json and per-node manifests
+          bash tools/adr/build_tree
+
+          # Also build legacy snapshot for backward compatibility
           bash tools/adr/build_release "adr/adr-${TS}-${SHA}.jsonl"
 
       - name: Create Release
@@ -84,8 +93,23 @@ jobs:
           name: "ADR Snapshot ${{ env.TS }}-${{ env.SHA }}"
           prerelease: true
           files: |
+            adr/tree-final-nar-*.json
+            adr/manifest-*.json
             adr/adr-${{ env.TS }}-${{ env.SHA }}.jsonl
-            adr/manifest-${{ env.TS }}-${{ env.SHA }}.json
+            adr/decisions.jsonl
+
+      - name: Dispatch adr-updated event
+        if: steps.changed.outputs.any_changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ADR_SPEC_REPO: ${{ vars.ADR_SPEC_REPO }}
+        run: |
+          TREE_FILE=$(ls adr/tree-final-nar-*.json | head -1)
+          if [ -f "$TREE_FILE" ]; then
+            bash tools/adr/dispatch "$TREE_FILE"
+          else
+            echo "[WARN] No tree-final-nar-*.json found, skipping dispatch"
+          fi
 
   repro_check:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -7,3 +7,6 @@ adr/decisions.jsonl
 adr/tree-*.json
 adr/adr-*.jsonl
 adr/manifest-*.json
+
+# Outbox for dispatch retry (Lazy Retry)
+.outbox/
