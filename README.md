@@ -39,14 +39,15 @@ This ensures explicit approval for all architectural decisions before implementa
 ```
 adr/
 ├── schema.cue              # CUE schema definitions for ADR v2
-├── allowed.cue             # Whitelist of permitted URIs (single source)
+├── allowed.cue             # Whitelist of permitted URIs (single source of truth)
 ├── src/                    # Decision files (.cue format)
 │   ├── <ULID>-<name>.cue
 │   └── ...
-├── examples/               # Valid/invalid examples for compatibility testing
-│   └── <Decision-ID>/
-│       └── valid/*.json
-└── log.jsonl.preview       # Generated preview (not committed)
+└── (generated files)       # NEVER committed to git:
+    ├── allowed.json        # Auto-generated from allowed.cue
+    ├── log.jsonl.preview   # Build preview
+    ├── adr-*.jsonl         # Release snapshots (published to GitHub Releases only)
+    └── manifest-*.json     # Release manifests (published to GitHub Releases only)
 
 tools/adr/
 ├── lib.sh                  # Common library functions (portable hashing, normalization)
@@ -55,8 +56,12 @@ tools/adr/
 └── build_release           # Build release snapshot with manifest
 
 ci/
-└── validate.sh             # CI validation entry point
+└── validate.sh             # CI validation entry point (includes generated file tracking guard)
 ```
+
+**Important:** All generated files (`.jsonl`, `manifest-*.json`, `allowed.json`) are **never committed** to the main branch. They are either:
+- Transient build artifacts (`.preview` files)
+- Published exclusively to GitHub Releases (snapshots and manifests)
 
 ## Workflow
 
@@ -228,9 +233,28 @@ This repository has migrated from JSON to CUE for the allowed URI whitelist:
 - **Before:** `adr/allowed.json` (manually edited)
 - **After:** `adr/allowed.cue` (single source of truth)
 
-`allowed.json` is now auto-generated during builds and should **never** be committed (it's in `.gitignore`).
+`allowed.json` is now auto-generated during builds and **must never be committed** (enforced by `.gitignore` and CI guard).
+
+### URI Format Migration
+
+URIs have been normalized to prohibit whitespace:
+- **Old format:** `api://billing/POST /charges` (space before path)
+- **New format:** `api://billing/POST:/charges` (colon separator)
+
+All URIs must match the pattern defined in `schema.cue` (`#URI`): no whitespace allowed.
 
 ## Troubleshooting
+
+### "Generated files must not be tracked in git"
+
+This error means you've accidentally committed auto-generated files. To fix:
+
+```bash
+git rm adr/allowed.json adr/adr-*.jsonl adr/manifest-*.json
+git commit -m "fix: remove tracked generated files"
+```
+
+These files are auto-generated and should only exist in GitHub Releases, not in git history.
 
 ### "unauthorized URIs found"
 

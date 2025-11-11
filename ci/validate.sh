@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "[INFO] Checking for tracked generated files..."
+# Prevent auto-generated files from being committed
+TRACKED_GEN_FILES=$(git ls-files 'adr/adr-*.jsonl' 'adr/allowed.json' 'adr/manifest-*.json' 'adr/log.jsonl' 'adr/log.jsonl.preview' || true)
+if [ -n "$TRACKED_GEN_FILES" ]; then
+  echo "[ERR] Generated files must not be tracked in git:"
+  echo "$TRACKED_GEN_FILES"
+  echo "[ERR] These files should be in .gitignore. Run: git rm <file>"
+  exit 1
+fi
+
 echo "[INFO] Validating CUE schemas..."
 
 # Validate schema and allowed.cue

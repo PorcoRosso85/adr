@@ -1,4 +1,6 @@
-# ADR generated files
+# ADR generated files (never commit)
 adr/log.jsonl
 adr/log.jsonl.preview
 adr/allowed.json
+adr/adr-*.jsonl
+adr/manifest-*.json
