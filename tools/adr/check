@@ -18,6 +18,17 @@ ALLOWED_JSON=$(normalize_allowed) || err "failed to export AllowedURIs from CUE"
 jq -s -e 'length > 0' "$PREV" >/dev/null || err "empty JSONL file"
 jq -s -e 'all(.[]; .id != null and .uri != null)' "$PREV" >/dev/null || err "id or uri missing"
 
+# URI format: no whitespace allowed (use colon separator like api://ns/POST:/path)
+WHITESPACE_URIS=$(jq -s -r '[.[].uri | select(test("\\s"))] | unique | .[]' "$PREV")
+if [ -n "$WHITESPACE_URIS" ]; then
+  echo "[ERR] URIs with whitespace detected (use colon separator):" >&2
+  echo "$WHITESPACE_URIS" | while read -r uri; do
+    echo "  Invalid: $uri" >&2
+    echo "  Example fix: 'POST /path' → 'POST:/path'" >&2
+  done
+  err "URI format violation: whitespace prohibited"
+fi
+
 # ID uniqueness
 jq -s -e '(map(.id)|length) == (map(.id)|unique|length)' "$PREV" >/dev/null || err "duplicate id found"
 

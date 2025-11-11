@@ -1,4 +1,12 @@
-# ADR generated files
+# ADR generated files (never commit)
 adr/log.jsonl
 adr/log.jsonl.preview
+adr/log*.jsonl
 adr/allowed.json
+adr/decisions.jsonl
+adr/tree-*.json
+adr/adr-*.jsonl
+adr/manifest-*.json
+
+# Outbox for dispatch retry (Lazy Retry)
+.outbox/

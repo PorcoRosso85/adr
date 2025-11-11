@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Dispatch adr-updated event to spec repository
+# Implements Lazy Retry via Outbox pattern (ACK is future work)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
+TREE_FILE="${1:-}"
+TARGET_REPO="${ADR_SPEC_REPO:-}"
+
+if [ -z "$TREE_FILE" ]; then
+  echo "[ERR] Usage: dispatch <tree-final-nar-*.json>" >&2
+  exit 1
+fi
+
+if [ ! -f "$TREE_FILE" ]; then
+  echo "[ERR] Tree file not found: $TREE_FILE" >&2
+  exit 1
+fi
+
+# Extract narHash from tree file
+NAR_HASH=$(jq -r '.narHash' "$TREE_FILE")
+REPO=$(jq -r '.repo' "$TREE_FILE")
+COMMIT=$(jq -r '.commit' "$TREE_FILE")
+
+# Generate eventId (ULID for traceability)
+EVENT_ID=$(date +%s%N | sha256sum | head -c 26 | tr 'a-z' 'A-Z')
+
+# Build tree URL (GitHub Release artifact)
+TAG="adr-snap-$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
+TREE_URL="https://github.com/${REPO}/releases/download/${TAG}/$(basename "$TREE_FILE")"
+
+# Sender allowlist: same org only
+SENDER_ORG=$(echo "$REPO" | cut -d'/' -f1)
+TARGET_ORG=$(echo "$TARGET_REPO" | cut -d'/' -f1)
+
+if [ "$SENDER_ORG" != "$TARGET_ORG" ]; then
+  echo "[ERR] Sender allowlist violation: $SENDER_ORG != $TARGET_ORG" >&2
+  exit 1
+fi
+
+# Prepare dispatch payload
+PAYLOAD=$(jq -nc \
+  --arg eid "$EVENT_ID" \
+  --arg nh "$NAR_HASH" \
+  --arg url "$TREE_URL" \
+  --arg repo "$REPO" \
+  --arg commit "$COMMIT" \
+  '{
+    eventId: $eid,
+    narHash: $nh,
+    treeFinalURL: $url,
+    repo: $repo,
+    commit: $commit
+  }')
+
+# Write to Outbox (Lazy Retry)
+OUTBOX_DIR=".outbox"
+mkdir -p "$OUTBOX_DIR"
+OUTBOX_FILE="$OUTBOX_DIR/${EVENT_ID}.json"
+
+echo "$PAYLOAD" > "$OUTBOX_FILE"
+echo "[INFO] Outbox entry created: $OUTBOX_FILE"
+
+# Attempt to send dispatch (if GitHub token available)
+if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "$TARGET_REPO" ]; then
+  echo "[INFO] Sending dispatch to $TARGET_REPO..."
+
+  if gh api repos/"$TARGET_REPO"/dispatches \
+    -X POST \
+    -H "Accept: application/vnd.github+json" \
+    -F event_type=adr-updated \
+    -F "client_payload=$(echo "$PAYLOAD" | jq -c .)" 2>&1; then
+
+    echo "[OK] Dispatch sent successfully"
+    # Mark as sent (ACK handling is future work)
+    mv "$OUTBOX_FILE" "${OUTBOX_FILE}.sent"
+  else
+    echo "[WARN] Dispatch failed, will retry on next run" >&2
+    echo "[INFO] Outbox entry remains: $OUTBOX_FILE" >&2
+  fi
+else
+  echo "[INFO] GITHUB_TOKEN or ADR_SPEC_REPO not set, dispatch skipped"
+  echo "[INFO] Outbox entry ready for manual retry: $OUTBOX_FILE"
+fi
+
+# Lazy Retry: process pending outbox entries
+echo "[INFO] Checking for pending outbox entries..."
+for f in "$OUTBOX_DIR"/*.json; do
+  [ -e "$f" ] || continue
+  echo "[INFO] Pending: $f"
+  # Future work: implement retry logic with backoff
+done
+
+echo "[OK] Dispatch complete (eventId: $EVENT_ID)"

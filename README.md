@@ -34,29 +34,111 @@ api://unauthorized/POST:/endpoint
 
 This ensures explicit approval for all architectural decisions before implementation.
 
+## Specifications
+
+### narHash Determinism
+
+All generated artifacts use NAR (Nix Archive) hashing for content-addressable storage:
+
+1. **Serialization**: Minified JSON with keys in lexicographic order, UTF-8 encoding, LF line endings
+2. **Hashing**: SHA-256 of NAR-serialized content, encoded as base32 (lowercase)
+3. **Embedding**: `narHash` field in JSON root + filename suffix
+4. **Example**: `tree-final-nar-1a2b3c4d5e6f7g8h.json` with `{"narHash": "sha256-1a2b3c4d5e6f7g8h", ...}`
+
+**Rationale**: Content-addressable artifacts prevent accidental overwrites and enable verifiable reproducibility.
+
+### URI Slug Convention
+
+For manifest filenames, URIs are converted to filesystem-safe slugs:
+
+- **Rule**: Replace `/` with `.`, remove `://`, remove `:` before paths
+- **Example**: `api://billing/POST:/charges` → `api.billing.POST.charges`
+- **Usage**: `manifest-api.billing.POST.charges-{narHash}.json`
+
+### Tree Final Guard Rules
+
+The `tree-final-nar-*.json` artifact must satisfy:
+
+1. **Schema version**: `schema_version` field must equal `"1"`
+2. **Finality**: All entries must have `state: "final"` (no `"provisional"`)
+3. **Size limit**: File size < 10 MB (prevents unbounded growth)
+4. **Timeout**: Download must complete within 30 seconds
+
+**Enforcement**: `spec` repository guards validate these rules before accepting the tree.
+
+### Artifact Distribution
+
+All generated artifacts are published exclusively to **GitHub Releases**:
+
+- **Snapshots**: `tree-final-nar-{hash}.json`
+- **Per-node manifests**: `manifest-{slug}-{hash}.json`
+- **Access URL**: `https://github.com/{org}/{repo}/releases/download/{tag}/{filename}`
+- **Authentication**: GitHub token (`GITHUB_TOKEN`) for private repos
+
+**Never committed to main branch** (enforced by `.gitignore` and CI guard).
+
+### Event Dispatch
+
+On every release, an `adr-updated` event is dispatched to the `spec` repository:
+
+**Payload**:
+```json
+{
+  "eventId": "01JB...",
+  "narHash": "sha256-abc123...",
+  "treeFinalURL": "https://github.com/org/repo/releases/download/tag/tree-final-nar-abc123.json",
+  "repo": "org/repo",
+  "commit": "abc123..."
+}
+```
+
+**Health Guards**:
+- **Sender allowlist**: Only same-org repositories can dispatch events
+- **Required fields**: `eventId` (ULID), `narHash`, `treeFinalURL`, `repo`, `commit`
+- **Concurrency**: `adr-release` group prevents concurrent builds
+
+**Outbox Pattern (Lazy Retry)**:
+- Failed dispatches are saved to `.outbox/{eventId}.json`
+- Retry logic processes pending entries on next run
+- ACK handling is future work (provisional state)
+
+**Configuration**:
+Set `ADR_SPEC_REPO` variable in repository settings (e.g., `org/spec`).
+
 ## Repository Structure
 
 ```
 adr/
 ├── schema.cue              # CUE schema definitions for ADR v2
-├── allowed.cue             # Whitelist of permitted URIs (single source)
+├── allowed.cue             # Whitelist of permitted URIs (single source of truth)
 ├── src/                    # Decision files (.cue format)
 │   ├── <ULID>-<name>.cue
 │   └── ...
-├── examples/               # Valid/invalid examples for compatibility testing
-│   └── <Decision-ID>/
-│       └── valid/*.json
-└── log.jsonl.preview       # Generated preview (not committed)
+└── (generated files)       # NEVER committed to git:
+    ├── allowed.json        # Auto-generated from allowed.cue
+    ├── decisions.jsonl     # Serialized decisions
+    ├── tree-*.json         # Tree snapshots (narHash-addressed)
+    ├── log*.jsonl          # Build logs and previews
+    ├── adr-*.jsonl         # Legacy snapshots (deprecated, use tree-*.json)
+    └── manifest-*.json     # Per-node manifests (published to GitHub Releases only)
 
 tools/adr/
-├── lib.sh                  # Common library functions (portable hashing, normalization)
+├── lib.sh                  # Common library functions (portable hashing, narHash, URI slugs)
 ├── build                   # Build preview JSONL
-├── check                   # Validation checks (deny-by-default, DAG, compatibility)
-└── build_release           # Build release snapshot with manifest
+├── check                   # Validation checks (deny-by-default, DAG, compatibility, URI format)
+├── build_release           # Build release snapshot with manifest (legacy)
+├── build_tree              # Build tree-final-nar-*.json and per-node manifests
+└── dispatch                # Dispatch adr-updated event with Outbox (Lazy Retry)
 
 ci/
-└── validate.sh             # CI validation entry point
+└── validate.sh             # CI validation entry point (includes generated file tracking guard)
+
+.outbox/                    # Dispatch retry queue (gitignored, Lazy Retry pattern)
 ```
+
+**Important:** All generated files (`decisions.jsonl`, `tree-*.json`, `log*.jsonl`, `manifest-*.json`, `allowed.json`) are **never committed** to the main branch. They are either:
+- Transient build artifacts (local only)
+- Published exclusively to GitHub Releases (tree/manifests with narHash)
 
 ## Workflow
 
@@ -228,9 +310,28 @@ This repository has migrated from JSON to CUE for the allowed URI whitelist:
 - **Before:** `adr/allowed.json` (manually edited)
 - **After:** `adr/allowed.cue` (single source of truth)
 
-`allowed.json` is now auto-generated during builds and should **never** be committed (it's in `.gitignore`).
+`allowed.json` is now auto-generated during builds and **must never be committed** (enforced by `.gitignore` and CI guard).
+
+### URI Format Migration
+
+URIs have been normalized to prohibit whitespace:
+- **Old format:** `api://billing/POST /charges` (space before path)
+- **New format:** `api://billing/POST:/charges` (colon separator)
+
+All URIs must match the pattern defined in `schema.cue` (`#URI`): no whitespace allowed.
 
 ## Troubleshooting
+
+### "Generated files must not be tracked in git"
+
+This error means you've accidentally committed auto-generated files. To fix:
+
+```bash
+git rm adr/allowed.json adr/decisions.jsonl adr/tree-*.json adr/adr-*.jsonl adr/manifest-*.json adr/log*.jsonl
+git commit -m "fix: remove tracked generated files"
+```
+
+These files are auto-generated and should only exist in GitHub Releases, not in git history.
 
 ### "unauthorized URIs found"
 

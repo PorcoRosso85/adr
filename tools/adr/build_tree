@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build tree-final-nar-<hash>.json with content-addressable naming
+# This script generates the final tree snapshot with narHash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
+REPO="${GITHUB_REPOSITORY:-local/repo}"
+COMMIT="$(git rev-parse HEAD)"
+TS_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Build decisions.jsonl first (intermediate file)
+DECISIONS_JSONL="adr/decisions.jsonl"
+bash "$SCRIPT_DIR/build_release" "$DECISIONS_JSONL"
+
+# Build tree structure (final Accepted decisions only)
+TREE_TEMP=$(mktemp)
+jq -s '
+  {
+    schema_version: "1",
+    repo: env.REPO,
+    commit: env.COMMIT,
+    ts: env.TS_UTC,
+    decisions: [
+      .[] | select(.status == "Accepted")
+    ]
+  }
+' "$DECISIONS_JSONL" > "$TREE_TEMP"
+
+# Compute narHash
+NAR_HASH=$(nar_hash "$TREE_TEMP")
+NAR_B32=$(echo "$NAR_HASH" | cut -d'-' -f2)
+
+# Embed narHash into JSON root
+TREE_FINAL="adr/tree-final-nar-${NAR_B32}.json"
+jq --arg nh "$NAR_HASH" '. + {narHash: $nh}' "$TREE_TEMP" | jq -cS . > "$TREE_FINAL"
+
+# Generate per-node manifests
+echo "[INFO] Generating per-node manifests..."
+jq -r '.decisions[].uri' "$TREE_FINAL" | sort -u | while read -r uri; do
+  SLUG=$(uri_to_slug "$uri")
+
+  # Extract decisions for this URI
+  NODE_TEMP=$(mktemp)
+  jq --arg u "$uri" '
+    {
+      schema_version: "1",
+      uri: $u,
+      repo: .repo,
+      commit: .commit,
+      ts: .ts,
+      decisions: [.decisions[] | select(.uri == $u)]
+    }
+  ' "$TREE_FINAL" > "$NODE_TEMP"
+
+  # Compute narHash for this node
+  NODE_HASH=$(nar_hash "$NODE_TEMP")
+  NODE_B32=$(echo "$NODE_HASH" | cut -d'-' -f2)
+
+  # Embed narHash
+  NODE_MANIFEST="adr/manifest-${SLUG}-${NODE_B32}.json"
+  jq --arg nh "$NODE_HASH" '. + {narHash: $nh}' "$NODE_TEMP" | jq -cS . > "$NODE_MANIFEST"
+
+  echo "[INFO]   $NODE_MANIFEST"
+  rm -f "$NODE_TEMP"
+done
+
+rm -f "$TREE_TEMP"
+
+echo "[OK] tree-final: $TREE_FINAL"
+echo "[OK] narHash: $NAR_HASH"
